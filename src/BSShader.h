@@ -62,7 +62,30 @@ namespace REX
 	static_assert(offsetof(PixelShader, m_ConstantUnion.m_PerMaterial) == 0x20);
 	static_assert(offsetof(PixelShader, m_ConstantOffsets) == 0x40);
 
+	struct VertexShader
+	{
+		std::uint32_t m_TechniqueID;       // Bit flags
+		ID3D11VertexShader* m_Shader;  // DirectX handle
 
+		union
+		{
+			struct BufferUnion
+			{
+				Buffer m_PerTechnique;  // CONSTANT_GROUP_LEVEL_TECHNIQUE
+				Buffer m_PerMaterial;   // CONSTANT_GROUP_LEVEL_MATERIAL
+				Buffer m_PerGeometry;   // CONSTANT_GROUP_LEVEL_GEOMETRY
+			};
+
+			BufferUnion m_ConstantUnion;
+			Buffer m_ConstantGroups[CONSTANT_GROUP_LEVEL_COUNT];
+		};
+
+		std::uint8_t m_ConstantOffsets[MAX_PS_CONSTANTS];  // Actual offset is multiplied by 4
+	};
+
+	static_assert(sizeof(VertexShader) == 0x80);
+	static_assert(offsetof(VertexShader, m_ConstantUnion.m_PerMaterial) == 0x20);
+	static_assert(offsetof(VertexShader, m_ConstantOffsets) == 0x40);
 
 	class BSShader :
 		public RE::NiRefObject,          // 00

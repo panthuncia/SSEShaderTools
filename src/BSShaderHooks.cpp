@@ -13,7 +13,7 @@ namespace BSShaderHooks
 	{
 		oLoadShaders(bsShader, stream);
 
-		logger::info("BSShader::LoadShaders called on {} - ps count {}", bsShader->m_LoaderType, bsShader->m_PixelShaderTable.size());
+		logger::info("BSShader::LoadShaders called on {} - ps count {} -  vs count {}", bsShader->m_LoaderType, bsShader->m_PixelShaderTable.size(), bsShader->m_VertexShaderTable.size());
 
 		if (strcmp("Lighting", bsShader->m_LoaderType) == 0) {
 			std::unordered_map<REX::TechniqueID, std::wstring> techniqueFileMap;
@@ -45,7 +45,8 @@ namespace BSShaderHooks
 							logger::info("shader compiled successfully, replacing old shader");
 							successCount++;
 							entry->m_Shader = shader;
-						} else {
+						}
+						else {
 							failedCount++;
 						}
 					}
@@ -54,6 +55,7 @@ namespace BSShaderHooks
 		}
 
 		std::unordered_map<REX::TechniqueID, std::wstring> techniqueFileMap;
+		std::unordered_map<REX::TechniqueID, std::wstring> vsTechniqueFileMap;
 
 		const auto shaderDir = std::filesystem::current_path() /= std::format("Data\\Shaders\\{}\\"sv, bsShader->m_LoaderType);
 		if (std::filesystem::exists(shaderDir)) {
@@ -64,6 +66,7 @@ namespace BSShaderHooks
 			std::size_t failedCount = 0;
 
 			for (const auto& entry : std::filesystem::directory_iterator(shaderDir)) {
+				bool isVs = false;
 				std::string fileStr = entry.path().filename().generic_string();
 
 				std::string techniqueIDStr;
@@ -74,28 +77,64 @@ namespace BSShaderHooks
 					auto tFileIt = techniqueFileMap.find(techniqueId);
 					if (tFileIt != techniqueFileMap.end() && !tFileIt->second.ends_with(L".hlsl"))
 						continue;  // favour compiled binary blobs
-				} else if (fileStr.ends_with(".ps")) {
+				}
+				else if (fileStr.ends_with(".ps")) {
 					techniqueIDStr = fileStr.substr(0, fileStr.length() - 3);
 					techniqueId = std::strtoul(techniqueIDStr.c_str(), nullptr, 16);
 					continue;
-				} else {
+				} else if (fileStr.ends_with(".vs.hlsl")) {
+					isVs = true;
+					techniqueIDStr = fileStr.substr(0, fileStr.length() - 8);
+					techniqueId = std::strtoul(techniqueIDStr.c_str(), nullptr, 16);
+					auto tFileIt = vsTechniqueFileMap.find(techniqueId);
+					if (tFileIt != vsTechniqueFileMap.end() && !tFileIt->second.ends_with(L".hlsl"))
+						continue;  // favour compiled binary blobs
+				}
+				else if (fileStr.ends_with(".vs")) {
+					isVs = true;
+					techniqueIDStr = fileStr.substr(0, fileStr.length() - 3);
+					techniqueId = std::strtoul(techniqueIDStr.c_str(), nullptr, 16);
+					continue;
+				}
+				else {
 					continue;
 				}
 
 				logger::info("found shader technique id {:08x} with path {}", techniqueId, entry.path().generic_string());
 				foundCount++;
-				techniqueFileMap.insert(std::make_pair(techniqueId, absolute(entry.path()).wstring()));
+				if (isVs) {
+					vsTechniqueFileMap.insert(std::make_pair(techniqueId, absolute(entry.path()).wstring()));
+				}
+				else {
+					techniqueFileMap.insert(std::make_pair(techniqueId, absolute(entry.path()).wstring()));
+				}
 			}
 
 			for (const auto& entry : bsShader->m_PixelShaderTable) {
 				auto tFileIt = techniqueFileMap.find(entry->m_TechniqueID);
 				if (tFileIt != techniqueFileMap.end()) {
 					bool compile = tFileIt->second.ends_with(L".hlsl");
-					if (const auto shader = compile ? ShaderCompiler::CompileAndRegisterPixelShader(tFileIt->second) : ShaderCompiler::RegisterPixelShader(tFileIt->second)) {
+					if (const auto psShader = compile ? ShaderCompiler::CompileAndRegisterPixelShader(tFileIt->second) : ShaderCompiler::RegisterPixelShader(tFileIt->second)) {
 						logger::info("shader compiled successfully, replacing old shader");
 						successCount++;
-						entry->m_Shader = shader;
-					} else {
+						entry->m_Shader = psShader;
+					}
+					else {
+						failedCount++;
+					}
+				}
+			}
+
+			for (const auto& entry : bsShader->m_VertexShaderTable) {
+				auto tFileIt = vsTechniqueFileMap.find(entry->m_TechniqueID);
+				if (tFileIt != vsTechniqueFileMap.end()) {
+					bool compile = tFileIt->second.ends_with(L".hlsl");
+					if (const auto vsShader = compile ? ShaderCompiler::CompileAndRegisterVertexShader(tFileIt->second) : ShaderCompiler::RegisterVertexShader(tFileIt->second)) {
+						logger::info("shader compiled successfully, replacing old shader");
+						successCount++;
+						entry->m_Shader = vsShader;
+					}
+					else {
 						failedCount++;
 					}
 				}
