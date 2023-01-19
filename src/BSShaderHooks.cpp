@@ -1,6 +1,7 @@
 #include "BSShader.h"
 #include "ShaderCompiler.h"
-
+#include "LoaderTypes.h"
+#include "BSShaderDefines.h"
 #include "API/ENBSeriesAPI.h"
 
 namespace BSShaderHooks
@@ -9,12 +10,7 @@ namespace BSShaderHooks
 	REL::Relocation<LoadShaders_t*> LoadShaders{ RELOCATION_ID(101339, 108326) };
 	LoadShaders_t oLoadShaders;
 
-	void hk_LoadShaders(REX::BSShader* bsShader, std::uintptr_t stream)
-	{
-		oLoadShaders(bsShader, stream);
-
-		logger::info("BSShader::LoadShaders called on {} - ps count {} -  vs count {}", bsShader->m_LoaderType, bsShader->m_PixelShaderTable.size(), bsShader->m_VertexShaderTable.size());
-
+	void loadIndividualShaders(REX::BSShader* bsShader, std::uintptr_t stream) {
 		if (strcmp("Lighting", bsShader->m_LoaderType) == 0) {
 			std::unordered_map<REX::TechniqueID, std::wstring> techniqueFileMap;
 
@@ -82,7 +78,8 @@ namespace BSShaderHooks
 					techniqueIDStr = fileStr.substr(0, fileStr.length() - 3);
 					techniqueId = std::strtoul(techniqueIDStr.c_str(), nullptr, 16);
 					continue;
-				} else if (fileStr.ends_with(".vs.hlsl")) {
+				}
+				else if (fileStr.ends_with(".vs.hlsl")) {
 					isVs = true;
 					techniqueIDStr = fileStr.substr(0, fileStr.length() - 8);
 					techniqueId = std::strtoul(techniqueIDStr.c_str(), nullptr, 16);
@@ -142,6 +139,100 @@ namespace BSShaderHooks
 
 			logger::info("found shaders: {} successfully replaced: {} failed to replace: {}", foundCount, successCount, failedCount);
 		}
+	}
+
+	void loadCompleteShaders(REX::BSShader* bsShader, std::uintptr_t stream){
+		const auto lightingVSpath = std::filesystem::current_path() /= std::format("Data\\Shaders\\{}\\{}.hlsl"sv, bsShader->m_LoaderType, bsShader->m_LoaderType);
+		ShaderLoaderType loaderType = getShaderLoaderType(bsShader->m_LoaderType);
+		if (std::filesystem::exists(lightingVSpath))
+		{
+			_MESSAGE("replacing vertex shaders");
+			size_t replaceCount = 0;
+			std::size_t foundCount = 0;
+			std::size_t successCount = 0;
+			std::size_t failedCount = 0;
+			for (const auto & entry : bsShader->m_VertexShaderTable)
+			{
+				_MESSAGE("replacing vertex shader technique {}", entry->m_TechniqueID);
+
+				auto defines = BSShaderInfo::Defines::GetArray(loaderType, entry->m_TechniqueID);
+				auto newShader = ShaderCompiler::CompileAndRegisterVertexShader(lightingVSpath.wstring(), defines);
+				if (newShader)
+				{
+					entry->m_Shader = newShader;
+					/*newShader->m_TechniqueID = entry->m_TechniqueID;
+					for (int i = 0; i < ::BSShader::CONSTANT_GROUP_LEVEL_COUNT; i++)
+					{
+						newShader->m_ConstantGroups[i].m_Buffer = entry->m_ConstantGroups[i].m_Buffer;
+						newShader->m_ConstantGroups[i].m_Data = entry->m_ConstantGroups[i].m_Data;
+					}
+					for (int i = 0; i < ::BSShader::MAX_VS_CONSTANTS; i++)
+						newShader->m_ConstantOffsets[i] = entry->m_ConstantOffsets[i];
+					newShader->m_VertexDescription = entry->m_VertexDescription;
+					bsShader->m_VertexShaderTable.insert_or_assign(newShader);
+					replaceCount++;*/
+				}
+				else
+				{
+					failedCount++;
+				}
+			}
+			_MESSAGE("replaced {} shaders, map size {}", replaceCount, bsShader->m_VertexShaderTable.size());
+		}
+
+		const auto lightingPSpath = std::filesystem::current_path() /= std::format("Data\\Shaders\\{}\\{}.hlsl"sv, bsShader->m_LoaderType, bsShader->m_LoaderType);
+		if (std::filesystem::exists(lightingPSpath))
+		{
+			_MESSAGE("replacing pixel shaders");
+			size_t replaceCount = 0;
+			size_t skipCount = 0;
+			size_t failedCount = 0;
+			for (const auto& entry : bsShader->m_PixelShaderTable)
+			{
+				const uint32_t baseTechniqueID = (entry->m_TechniqueID >> 24) & 0x3F;
+					
+				_MESSAGE("replacing pixel shader technique {} ({})", entry->m_TechniqueID, baseTechniqueID);
+				if (baseTechniqueID == 14)
+				{
+					_MESSAGE("8, 14, 19 unavailable, skipping");
+					skipCount++;
+					continue;
+				}
+
+				std::vector<D3D_SHADER_MACRO> defines = BSShaderInfo::Defines::GetArray(loaderType, entry->m_TechniqueID);
+				auto newShader = ShaderCompiler::CompileAndRegisterPixelShader(lightingPSpath.wstring(), defines);
+				if (newShader)
+				{
+					entry->m_Shader = newShader;
+					/*newShader->m_TechniqueID = entry->m_TechniqueID;
+					for (int i = 0; i < ::BSShader::CONSTANT_GROUP_LEVEL_COUNT; i++)
+					{
+						newShader->m_ConstantGroups[i].m_Buffer = entry->m_ConstantGroups[i].m_Buffer;
+						newShader->m_ConstantGroups[i].m_Data = entry->m_ConstantGroups[i].m_Data;
+					}
+					for (int i = 0; i < ::BSShader::MAX_PS_CONSTANTS; i++)
+						newShader->m_ConstantOffsets[i] = entry->m_ConstantOffsets[i];
+					bsShader->m_PixelShaderTable.insert_or_assign(newShader);
+					replaceCount++;*/
+				}
+				else
+				{
+					failedCount++;
+				}
+			}
+			_MESSAGE("replaced {} shaders, skipped {} shaders, failed compile {} shaders, map size {}", replaceCount, skipCount, failedCount, bsShader->m_PixelShaderTable.size());
+		}
+	}
+
+	void hk_LoadShaders(REX::BSShader* bsShader, std::uintptr_t stream)
+	{
+		oLoadShaders(bsShader, stream);
+
+		logger::info("BSShader::LoadShaders called on {} - ps count {} -  vs count {}", bsShader->m_LoaderType, bsShader->m_PixelShaderTable.size(), bsShader->m_VertexShaderTable.size());
+
+		loadIndividualShaders(bsShader, stream);
+
+		loadCompleteShaders(bsShader, stream);
 	}
 
 	void Install()
