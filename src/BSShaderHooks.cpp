@@ -144,6 +144,7 @@ namespace BSShaderHooks
 	void loadCompleteShaders(REX::BSShader* bsShader, std::uintptr_t stream){
 		const auto lightingVSpath = std::filesystem::current_path() /= std::format("Data\\Shaders\\{}\\{}.hlsl"sv, bsShader->m_LoaderType, bsShader->m_LoaderType);
 		ShaderLoaderType loaderType = getShaderLoaderType(bsShader->m_LoaderType);
+		std::vector<D3D_SHADER_MACRO> extraDefines = BSShaderInfo::Defines::loadExternalDefines();
 		if (std::filesystem::exists(lightingVSpath))
 		{
 			_MESSAGE("replacing vertex shaders");
@@ -155,7 +156,8 @@ namespace BSShaderHooks
 			{
 				_MESSAGE("replacing vertex shader technique {}", entry->m_TechniqueID);
 
-				auto defines = BSShaderInfo::Defines::GetArray(loaderType, entry->m_TechniqueID);
+				std::vector<D3D_SHADER_MACRO> defines = BSShaderInfo::Defines::GetArray(loaderType, entry->m_TechniqueID);
+				defines.insert(std::end(defines), std::begin(extraDefines), std::end(extraDefines));
 				auto newShader = ShaderCompiler::CompileAndRegisterVertexShader(lightingVSpath.wstring(), defines);
 				if (newShader)
 				{
@@ -200,6 +202,7 @@ namespace BSShaderHooks
 				}
 
 				std::vector<D3D_SHADER_MACRO> defines = BSShaderInfo::Defines::GetArray(loaderType, entry->m_TechniqueID);
+				defines.insert(std::end(defines), std::begin(extraDefines), std::end(extraDefines));
 				auto newShader = ShaderCompiler::CompileAndRegisterPixelShader(lightingPSpath.wstring(), defines);
 				if (newShader)
 				{

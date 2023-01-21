@@ -1,5 +1,12 @@
 #include "LoaderTypes.h" 
+#include <stdio.h>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <sstream>
 
+//using namespace std;
 #pragma once
 #pragma push_macro("TEST_BIT")
 #undef TEST_BIT
@@ -7,6 +14,7 @@
 
 namespace BSShaderInfo::Defines
 {
+
 	static std::vector<D3D_SHADER_MACRO> GetArray( ShaderLoaderType loaderType, uint32_t Technique)
 	{
 		std::vector<D3D_SHADER_MACRO> defines;
@@ -78,6 +86,59 @@ namespace BSShaderInfo::Defines
 			break;
 		}
 		return defines;
+	}
+	static std::vector<D3D_SHADER_MACRO> loadExternalDefines(){
+		std::vector<D3D_SHADER_MACRO> result;
+		const auto defines_file = std::filesystem::current_path() /= std::format("Data\\SKSE\\ShaderInjector\\additional_defines.txt"sv);
+		std::fstream file(defines_file, std::ios::in);
+		std::string line, define;
+		if (file.is_open())
+		{
+			//should be just one line, but just in case
+			while (getline(file, line))
+			{
+				//gtfo random null terminators
+				char* line_copy = (char*)malloc(line.length() + 1);
+				for (int i = 0; i < line.length(); i++) {
+					if (line.c_str()[i] == '\0') {
+						line_copy[i] = ' ';
+					}
+					else {
+						line_copy[i] = line.c_str()[i];
+					}
+				}
+				line = line_copy;
+				free(line_copy);
+				//cut whitespace
+				line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
+				//pull out pairs
+				std::stringstream str(line);
+				while (getline(str, define, ';')) {
+					int i = 0;
+					D3D_SHADER_MACRO macro;
+					std::stringstream define_str(define);
+					std::string field;
+					while (getline(define_str, field, ',')) {
+						if (i %2 == 0) {
+							char* copy = (char*)malloc(field.size()+1);
+							strncpy(copy, field.c_str(), field.size() + 1);
+							macro.Name = copy;
+						}
+						else {
+							char* copy = (char*)malloc(field.size()+1);
+							strcpy(copy, field.c_str());
+							macro.Definition = copy;
+						}
+						i++;
+					}
+					result.push_back(macro);
+				}
+			}
+		}
+		/*for (auto s : result) {
+			logger::info("adding external define: {}", s.Name);
+		}*/
+		return result;
 	}
 }
 
